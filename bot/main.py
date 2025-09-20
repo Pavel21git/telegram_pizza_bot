@@ -90,39 +90,35 @@ async def begin_order(message: types.Message, uid: int, state: FSMContext) -> No
 # ---------- Команды ----------
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message) -> None:
-    await message.answer("Привет! Я бот-пиццерия 🍕. Готов принять заказ.\nНапиши /menu")
+    await message.answer(
+        "Привет! Я бот-пиццерия 🍕. Готов принять заказ.\nНапиши /menu"
+    )
 
+    await message.answer(text, reply_markup=kb)
 
 @dp.message(Command("menu"))
 async def cmd_menu(message: types.Message) -> None:
-    # Показываем позиции меню
+    # отправляем карточки всех пицц
     for p in MENU:
         pid = int(p["id"])
         text = (
             f"<b>{p.get('name')}</b>\n"
             f"{p.get('desc')}\n"
-            f"Цена: {float(p.get('price', 0)):.2f}$"
+            f"Цена: {float(p.get('price', 0)):0.2f}$"
         )
         kb = types.InlineKeyboardMarkup(
             inline_keyboard=[
-                [
-                    types.InlineKeyboardButton(
-                        text="➕ В корзину", callback_data=f"add:{pid}"
-                    )
-                ]
+                [types.InlineKeyboardButton(text="➕ В корзину", callback_data=f"add:{pid}")]
             ]
         )
         await message.answer(text, reply_markup=kb)
 
-    # Кнопка «Корзина»
+    # кнопка открыть корзину
     kb_cart = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [types.InlineKeyboardButton(text="🧺 Открыть корзину", callback_data="cart")]
-        ]
+        inline_keyboard=[[types.InlineKeyboardButton(text="🧺 Открыть корзину", callback_data="cart")]]
     )
     await message.answer("Когда будете готовы — откройте корзину:", reply_markup=kb_cart)
-
-
+   
 @dp.message(Command("cart"))
 async def cmd_cart(message: types.Message) -> None:
     text, _ = cart_text(message.from_user.id)
