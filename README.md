@@ -1,4 +1,4 @@
-# 🍕 Telegram Pizza Bot# 🍕 Telegram Pizza Bot
+# 🍕 Telegram Pizza Bot
 
 Дипломный проект по направлению **Python Developer (TeachMeSkills)**.  
 Телеграм-бот для оформления заказов пиццы.  
