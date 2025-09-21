@@ -1,12 +1,24 @@
 # bot/main.py
 from __future__ import annotations
 
-import os
+# --- ИНИЦИАЛИЗАЦИЯ DJANGO (ДОЛЖНА БЫТЬ ПЕРВОЙ!) ---
+import os, sys, django
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[1]      # корень проекта: Telegram_pizza_bot
+sys.path.insert(0, str(BASE_DIR))                   # чтобы видеть пакеты core и web
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "web.settings")
+django.setup()
+# --- конец блока ---
+
+# --- стандартные импорты ---
 import json
 from collections import defaultdict
-from pathlib import Path
 from typing import Dict, List, Tuple
+from asgiref.sync import sync_to_async  # если используешь
 
+# --- сторонние пакеты ---
+from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
@@ -14,11 +26,10 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
-from dotenv import load_dotenv
+# теперь можно импортировать модели Django
+from core.models import Order, OrderItem, Pizza 
 
-
-# ---------- Пути / конфиг ----------
-BASE_DIR = Path(__file__).resolve().parents[1]
+# --- пути / конфиг ---
 ENV_PATH = BASE_DIR / ".env"
 DATA_DIR = BASE_DIR / "data"
 MENU_PATH = DATA_DIR / "menu.json"
@@ -29,13 +40,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 if not BOT_TOKEN:
     raise RuntimeError("❌ BOT_TOKEN не найден. Проверь .env и формат BOT_TOKEN=...")
 
-# Бот и диспетчер
+# --- создание бота и диспетчера ---
 bot = Bot(
     token=BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML),
 )
 dp = Dispatcher()
-
 
 # ---------- Данные ----------
 def load_menu() -> List[Dict]:
@@ -186,27 +196,51 @@ async def get_phone(message: types.Message, state: FSMContext) -> None:
     await message.answer("Введите адрес доставки:")
     await state.set_state(OrderForm.address)
 
+from asgiref.sync import sync_to_async
+from core.models import Order, OrderItem, Pizza
+
+# --- синхронный помощник для ORM ---
+def _save_order_and_items(uid: int, phone: str, address: str,
+                          items: list[int], total: float) -> int:
+    order = Order.objects.create(
+        user_id=uid,
+        phone=phone,
+        address=address,
+        total=total,
+    )
+    for pid in items:
+        pizza = Pizza.objects.get(id=pid)
+        OrderItem.objects.create(
+            order=order,
+            pizza=pizza,
+            qty=1,
+            price=pizza.price,
+        )
+    return order.id
 
 @dp.message(OrderForm.address)
 async def get_address(message: types.Message, state: FSMContext) -> None:
     data = await state.get_data()
-    phone = data.get("phone", "")
+    phone = data.get("phone", "").strip()
     address = message.text.strip()
-
     uid = message.from_user.id
     text, total = cart_text(uid)
+
     if not CART.get(uid):
         await message.answer("Корзина пуста. Заказ отменён.")
         await state.clear()
         return
 
-    # Простейший номер заказа
-    order_id = abs(hash((uid, phone, address))) % 1_000_000
+    # сохраняем заказ в БД
+    order_id = await sync_to_async(_save_order_and_items)(
+        uid, phone, address, CART.get(uid, []), total
+    )
 
-    # Очищаем корзину
+    # чистим корзину и состояние
     CART.pop(uid, None)
     await state.clear()
 
+    # одно подтверждение
     clean_text = text.replace("<b>Корзина</b>\n", "")
     await message.answer(
         f"✅ Заказ оформлен!\n"
@@ -215,6 +249,7 @@ async def get_address(message: types.Message, state: FSMContext) -> None:
         f"<b>Адрес:</b> {address}\n\n"
         f"{clean_text}"
     )
+
 # ---------- Точка входа ----------
 async def main() -> None:
     await dp.start_polling(bot)
